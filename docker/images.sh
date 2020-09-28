@@ -2,10 +2,9 @@
 #
 # List image directory
 
-# -dir    display image dir; with the image id, print
-#         all directories in which image is located
+# -d    display image dir
 
-# without arguments display all the files related to iamge ID's
+# without arguments display all the files related to image ID's
 # in turn:
 #   /var/lib/docker/image/overlay2/imagedb/content/sha256/4bb46517cac397bdb0bab6eba09b0e1f8e90ddd17cf99662997
 #
