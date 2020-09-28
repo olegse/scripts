@@ -15,15 +15,18 @@
 #   /var/lib/docker/image/overlay2/imagedb/content/sha256/[nginx]
 
 
-# With test(1), if file readable... give more information about needed user
-# or group.
-[ $UID -eq 0 ]  || { echo "Run as root..."; exit 1; }
-
 # Construct the path
-info=( $( docker info | awk -F: '/(Docker Root Dir)|(Storage Driver)/ {print $2}' ) )
-path=${info[1]}/image/${info[0]}/imagedb/ #content/
+dir=$( docker info | awk -F: '/Docker Root Dir/ {print $2}' )
+driver=$( docker info | awk -F: '/Storage Driver/ {print $2}' )
 
-# Here loop throuugh all the images or only those found on command line
+if ! test -r $dir 
+then 
+  users=( $( stat $dir -c "%U %G" ) )
+  echo "Run as ${users[0]} or as part of ${users[1]} group."
+fi
+path=$dir/image/$driver/imagedb/ #content/
+
+# Here loop through all the images or only those found on command line
 test -z "$1" || { find $path -name "*$1*" -exec file {} \; ; exit; }
 
 # add interactive
