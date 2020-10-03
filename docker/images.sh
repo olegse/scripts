@@ -13,21 +13,42 @@
 #
 # or with --names
 #   /var/lib/docker/image/overlay2/imagedb/content/sha256/[nginx]
+function usage() {
+  echo "Usage: `basename $0` [-d] [IMAGE...]"
+  echo "List image files filtered with IMAGE or all the images."
+  echo "Options:"
+  echo "  -d            print image dir path"
+  exit 0
+}
 
 
 # Construct the path
 dir=$( docker info | awk -F: '/Docker Root Dir/ {print $2}' )
-driver=$( docker info | awk -F: '/Storage Driver/ {print $2}' )
+driver=$( docker info | awk -F: '/Storage Driver/ {print $2}' | tr -d ' ' )
+path=$dir/image/$driver/imagedb/content/
 
-if ! test -r $dir 
+
+while getopts d opt; do
+  case $opt in
+    'd')  echo "The image storage directory:   $path (`stat -c "%U %G" $dir`)"
+          exit 0;;
+    'h')  usage;;
+    '?')  echo "`basename $0`: invalid option -- '$OPTARG'"
+          exit 3;;
+  esac
+done
+ 
+if ! test -r $dir   
 then 
-  users=( $( stat $dir -c "%U %G" ) )
-  echo "Run as ${users[0]} or as part of ${users[1]} group."
+  echo "Cannot access '$dir'. Permission denied."
+  exit 2
 fi
-path=$dir/image/$driver/imagedb/ #content/
 
-# Here loop through all the images or only those found on command line
-test -z "$1" || { find $path -name "*$1*" -exec file {} \; ; exit; }
+for image_id in $(docker images --no-trunc --quiet)
+do
+  echo "[DEBUG] Processing '$image_id'"
+  find $path -name ${image_id/*:} -exec file {} \;
+done
 
 # add interactive
 #echo "Image path: '$path'"
