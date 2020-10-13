@@ -4,7 +4,6 @@
 
 # Grep through all the included files
 declare -a files=$( nginx -T 2>&1 | sed -n 's,# configuration file \(\(\/[a-zA-Z_.]\+\)\+\).*,\1,p' )
-ngx_file=configs/default.conf.1
 
 function dump() {
   declare -n a=$1
