@@ -28,7 +28,7 @@ driver=$( docker info | awk -F: '/Storage Driver/ {print $2}' | tr -d ' ' )
 path=$dir/image/$driver/imagedb/content/
 
 
-while getopts d opt; do
+while getopts ":dh" opt; do
   case $opt in
     'd')  echo "The image storage directory:   $path (`stat -c "%U %G" $dir`)"
           exit 0;;
