@@ -1,0 +1,24 @@
+
+# Find 'server' blocks
+declare -a servers=$( awk -F: '/^ *server *}? *$/ {print NR}' $ngx_file )
+for server in ${servers[@]}
+do
+  # find closest bracket
+  # then determine the range and parse it!
+# Now.. where is server directive starts and where specific 'listen' directive belongs?
+num=2
+for start in ${!blocks[@]}
+do
+  block_start=$start; block_end=${blocks[$start]}
+  if [ $num -gt $block_start -a $num -lt $block_end ]
+  then
+    echo "$num range found!"
+    echo "$block_start <-> $block_end"
+    break
+  fi
+done
+
+# Next is to find closest bracket to the server directive, so what were the options
+# to find a line number:
+#
+# 1. awk '/<pattern>/ {print NR}' FILE
