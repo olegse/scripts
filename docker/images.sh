@@ -18,37 +18,58 @@ function usage() {
   echo "List image files filtered with IMAGE or all the images."
   echo "Options:"
   echo "  -d            print image dir path"
+  echo "  -c		print containers <-> images"
+  echo "  -p		print image path"
+  echo "  -h		print this message and exit"
   exit 0
 }
 
+# Prints image path. Expects 
+# image id. path should be set globally.
+function print_image_path() { find $path -name ${1}; }
+	
 
 # Construct the path
 dir=$( docker info | awk -F: '/Docker Root Dir/ {print $2}' )
 driver=$( docker info | awk -F: '/Storage Driver/ {print $2}' | tr -d ' ' )
 path=$dir/image/$driver/imagedb/content/
 
-
-while getopts ":dh" opt; do
+while getopts ":pcdh" opt; do
   case $opt in
-    'd')  echo "The image storage directory:   $path (`stat -c "%U %G" $dir`)"
+    c)	(( list_containers++ )) ;;
+    p)	(( print_image_path++ )) ;;
+    d)  echo "The image storage directory:   $path (`stat -c "%U %G" $dir`)"
           exit 0;;
-    'h')  usage;;
-    '?')  echo "`basename $0`: invalid option -- '$OPTARG'"
+    h)  usage;;
+    \?)  echo "`basename $0`: invalid option -- '$OPTARG'"
           exit 3;;
   esac
 done
  
-if ! test -r $dir   
-then 
-  echo "Cannot access '$dir'. Permission denied."
-  exit 2
-fi
+# Test for permissions
+test -r $dir || { echo "Cannot access '$dir'. Permission denied."; exit 2; }
 
-for image_id in $(docker images --no-trunc --quiet)
-do
-  echo "[DEBUG] Processing '$image_id'"
-  find $path -name ${image_id/*:} -exec file {} \;
-done
+# Display names along to files ${container:-a}
+if [ -n "$list_containers" ]; then
+	for cnt in $( docker ps -a --format "{{ .Names }}" )
+	do
+		image_id=$( docker inspect $cnt --format "{{ .Image }}" )
+		image_id=${image_id/*:}
+		repotag=$( docker inspect $image_id -f "{{ .RepoTags }}" )
+		echo "$cnt:  $image_id ($repotag)"
+		test "$print_image_path" && print_image_path $image_id
+
+	done
+
+elif [ -n "$print_image_path" ]; then
+	for image_id in $(docker images --no-trunc --quiet)
+	do
+	 # echo "[DEBUG] Processing '$image_id'"
+	 # learn tag
+	 repotag=$( docker inspect $image_id -f "{{ .RepoTags }}" )
+	 find $path -name ${image_id/*:} -exec echo -e "{}\n($repotag)" \; # remove 'sha:' part
+	done
+fi
 
 # add interactive
 #echo "Image path: '$path'"
