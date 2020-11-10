@@ -22,8 +22,8 @@ while getopts ":ti" OPT
 do
   echo "Processing: $OPT"
   case $OPT in
-   't') action='-n' ;;
-   'i') action='-i' ;;
+   't') action='np' ;;
+   'i') action='i' ;;
    '?') echo "Invalid option '-$OPTARG'"
         usage ;;
   esac
@@ -34,4 +34,5 @@ path=${!OPTIND:-.};
 GIT_CONF=$path/.git/config
 
 echo "action: $action"
-sed ${action} '/url/ s|\w\+://\([-a-zA-Z~._]\+\)/\(\([-a-zA-Z~._]\+\)/[-a-zA-Z~._]\+\)|git@\1-\3:\2.git|' $GIT_CONF
+set -x
+sed -${action:0:1} "/url/ s,\([-a-zA-Z:._= ]\+\)//\([^/]\+\)/\([^/]\+\)/\([^/]\+\),\1git@\2-\3:\3/\4,${action/*p/p}" $GIT_CONF
