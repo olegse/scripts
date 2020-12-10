@@ -4,6 +4,12 @@
 # In '.git/config'.
 #
 # url = https://github.com/olegse/scripts
+#       -> git@github.com-olegse:olegse/scripts
+#  
+# Note '-olegse' part, that for allowing different ssh keys in
+# .ssh/config
+# 
+# Also edit ssh config file.
 
 
 usage() {
@@ -35,4 +41,4 @@ GIT_CONF=$path/.git/config
 
 echo "action: $action"
 set -x
-sed -${action:0:1} "/url/ s,\([-a-zA-Z:._= ]\+\)//\([^/]\+\)/\([^/]\+\)/\([^/]\+\),\1git@\2-\3:\3/\4,${action/*p/p}" $GIT_CONF
+sed -${action:0:1} "/url/ s,[-a-zA-Z:._= ]\+//\([^/]\+\)/\([^/]\+\)/\([^/]\+\),git@\1-\2:\2/\3,${action:1:1}" $GIT_CONF
