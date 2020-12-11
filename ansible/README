@@ -1,0 +1,13 @@
+
+ Script List
+
+    + hostvars.sh       Store hostvars in file under 'hostvars' directory.
+                        To get host variables 'hostvars.yml' playbook is run
+    + list_hosts.sh     list hosts by specification in a playbook
+    + write-tags.sh     write tags in a file and includes recursively
+
+ Find included roles
+ Find includes within the role
+
+ Check this out:
+ https://github.com/hanxue/parse_yaml/blob/master/parse_yaml
