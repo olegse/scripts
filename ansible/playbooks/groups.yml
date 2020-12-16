@@ -1,0 +1,9 @@
+#!/usr/bin/ansible-playbook
+---
+- hosts: all
+  gather_facts: yes
+  tasks:
+    - name: show groups
+      debug:
+        var: group_names
+        #var: groups    # all available groups

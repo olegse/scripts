@@ -1,0 +1,27 @@
+#!/usr/bin/ansible-playbook
+---
+- hosts: all
+  gather_facts: yes
+  tasks:
+    - name: debug hostvars
+      debug:
+        msg: "{{ hostvars }}"
+      tags: hostvars
+
+    - name: debug ansible_facts
+      debug:
+        msg: "{{ ansible_facts }}"
+      tags: ansible_facts
+
+    - name: ansible_facts.all_ipv4_addresses
+      debug:
+        msg: "{{ ansible_facts.all_ipv4_addresses }}"
+      tags: ansible_facts
+
+    - name: debug both
+      debug:
+        msg: "{{ item }}"
+      loop:
+        - "{{ hostvars }}"
+        - "{{ ansible_facts }}"
+      tags: all
