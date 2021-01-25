@@ -20,6 +20,7 @@ for option; do
   case ${option} in
     -l|--list)  ((list++));;
                 # process filetypes
+    -p|--pack)  ((pack++));;
     -*)         echo "`basename $0`: invalid option --  '$option'"; exit;;
      *)         patterns+=${option};;
   esac
@@ -31,20 +32,23 @@ do
   echo "Processing pattern '$p'"
   
 
-  # If we just give the name to dpkg(1) it will search for regexp. 
-  # We want to be more concrete limiting search to the file if it
-  # doesn't have slashes so for owner of the executable.
-  if [  -e "$p"  ]
-  then 
-      file="$p"
-      echo "Found a file matching '$file'"
-       #here if it is in the current directory == has no slashes, './' should
-       #be appended, otherwise will be treated as the pattern
-  elif
-    ! [[ "$p" =~ / ]]   # if it was slash it would be already found as a file before
-   then
-      echo "no such file, searching for executable matching '$p'"    
-      file=`which $p`     # here if program was not found it will result in no string
+  if [ ! $pack ] 
+  then
+    # If we just give the name to dpkg(1) it will search for regexp. 
+    # We want to be more concrete limiting search to the file if it
+    # doesn't have slashes so for owner of the executable.
+    if [  -e "$p"  ]
+    then 
+        file="$p"
+        echo "Found a file matching '$file'"
+         #here if it is in the current directory == has no slashes, './' should
+         #be appended, otherwise will be treated as the pattern
+    elif
+      ! [[ "$p" =~ / ]]   # if it was slash it would be already found as a file before
+     then
+        echo "no such file, searching for executable matching '$p'"    
+        file=`which $p`     # here if program was not found it will result in no string
+    fi
   fi
 
   # Now $file is set to be an absolute path, otherwise it will be treated by dpkg -S as 
@@ -53,7 +57,9 @@ do
 
   if [ -z "$file" ]
   then
-    echo "no such executable, searching for package names matching the pattern '$p'"
+    if [ $pack ]; then echo "Packages search forced";
+                  else echo "no such executable, searching for package names matching the pattern '$p'"
+    fi
     PS3="Choose the package: "
     select owner in $( apt list --installed "*$p*" ); do
         if [ -n "$REPLY" ]; then break; fi
@@ -72,6 +78,7 @@ do
 
   if [ -z "$owner" ]
   then
+    [ $pack ] && { echo "No packages matching '$p' pattern found" 1>&2; exit 1; }
     echo "No matching filename, executable or package found for the given pattern" 1>&2
     exit 1
   fi
