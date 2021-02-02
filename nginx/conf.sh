@@ -33,6 +33,7 @@ do
         do
           if test -e $file; then ls $file; fi
         done
+        # implement recursivity
         ;;
 
     v)  # be verbose
