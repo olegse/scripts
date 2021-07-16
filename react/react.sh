@@ -3,6 +3,7 @@
 #
 # List applicaitons in SELECT
 # 
+# TEST TEST TEST ArtApps in Friday
 usage() {
   echo "Usage: `basename $0` [-c APP] | [-p [PORT] [APP]] "
   echo "Automates repetative React tasks. Supported tasks"
@@ -30,6 +31,8 @@ find_pj() {
   PJ=   # will be initialized if found
   DIR=`pwd`   # set current directory value
 
+  # ! Completely wrong alghorithm for searching the PORT, must
+  # be BASE_DIR + 1DIR
   while [[ $DIR != ${BASE_DIR} ]] #echo searching in $DIR
   do
     #ls package.json
@@ -59,7 +62,7 @@ port() {
   then
     PORT=`sed -n 's/^.*start.*"PORT=\([0-9]\+\).*/\1/p' $PJ`
     if [ -z "$PORT" ]; then
-      PORT=3000
+      PORT=3000     # default port
     fi
     echo "Port number: $PORT"
   else  # set the port number
@@ -69,9 +72,19 @@ port() {
   fi
 }
 
+# Issue select to operate on apps
 list_apps() {
     
+  # Currently show only running apps
+  declare -a apps=$( sudo netstat -t4 -nl -p | awk  '/node\s*$/ { print $NF }' | cut -d/ -f1 )
+
+  for app in ${apps[@]}
+  do
+    sudo ps -p $app -o cmd | tail -n +2 | sed 's,.*/\(\w\+\)/node_modules.*,\1,'
+  done
 }
+
+
 # Create React app
 create_react_app() {
   npx create-react-app $1
@@ -99,7 +112,7 @@ else
         }
         while [ -n "$2" ]; do
           if is_numeric $2; then
-            if [ -z "$PORT" ]
+            if [ -z "$PORT" ]     # why? shall I pass it somewhere?
             then
               PORT=$2
             else
