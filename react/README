@@ -1,0 +1,6 @@
+  echo "Port value is searched inside \"package.json\" file in the application directory."
+  echo "PORT and APP are optional and can be used interchangabely. If port value is spesified"
+  echo "it is set, otherwise the current value is displayed. If APP was passed to the option"
+  echo "it is appended to the BASE_DIR (/var/node/ArtApps) to construct a full path to the APP_DIR, where"
+  echo "\"package.json\" is searched and manipulated, otherwise, the current directory is taken to be"
+  echo "inside a tree of application directories, where the file will be searched recursively."

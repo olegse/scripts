@@ -3,124 +3,212 @@
 #
 # List applicaitons in SELECT
 # 
-# TEST TEST TEST ArtApps in Friday
 usage() {
-  echo "Usage: `basename $0` [-c APP] | [-p [PORT] [APP]] "
+  echo "Usage: `basename $0` [-v] [-l]|[-c APP]|[-p [PORT] [APP]] "
   echo "Automates repetative React tasks. Supported tasks"
-  echo "are: list current configuration,  create new application or change/display current port."
+  echo "are: "
+  echo "   list applications"
+  echo "   create new application"
+  echo "   change/display port"
   echo ""
   echo "  -l        list current applications"
   echo "  -p [PORT] [APP]    print or set a port number"
   echo "  -c APP     create new app"
+  echo "  -v         print what was done"
   echo "  -h         print this usage and exit"
   echo ""
-  echo "Port value is searched inside \"package.json\" file in the application directory."
-  echo "PORT and APP are optional and can be used interchangabely. If port value is spesified"
-  echo "it is set, otherwise the current value is displayed. If APP was passed to the option"
-  echo "it is appended to the BASE_DIR (/var/node/ArtApps) to construct a full path to the APP_DIR, where"
-  echo "\"package.json\" is searched and manipulated, otherwise, the current directory is taken to be"
-  echo "inside a tree of application directories, where the file will be searched recursively."
   exit 0
 }
 
+declare -A apps             # apps[NAME]=PORT
+declare -A apps_running     # apps_running[NAME]=PID
+declare -a app_names        # 
+declare -a app_dirs         # full path to the directories
+declare -g APP_DIR
 BASE_DIR=/var/node/ArtApps
+RUN_MSG="\e[42m [RUNNING] \e[0m"
+PORT_DEFAULT=3000
 
-# First we need to find a top level directory of the given project. That can
-# be or passed explicitely on the command line or found in relation to the directory
-# from which the script is called.
-app_dir() {
-  APP_DIR=${PWD#$BASE_DIR/}
-  APP_DIR=${APP_DIR%%/*}
-  APP_DIR=$BASE_DIR/$APP_DIR
-  APP_JSON=$APP_DIR/package.json
-  if ! test $APP_JSON; then
-    echo "packge.json is missing?"
-    exit 2; 
+
+# Initializes apps[] and app_dirs[] for the particular application.
+# Uses global APP_DIR variable (init_apps)
+set_app() {
+
+  # APP_DIR was passed as an argument
+  test -z "$1" || APP_DIR=$1
+
+  # If APP_DIR was not set find it relation to the directory from
+  # which the script is called.
+  test -n "${APP_DIR:=$PWD}" && test -e $APP_DIR || { echo "Cannot change to '$APP_DIR'"; exit 2; }
+
+
+  test "$APP_DIR" =  "$BASE_DIR" && \
+    {
+      echo "Please specify APP_NAME explicitly or ";
+      echo "navigate to the one of the application directories."
+      # run select here?
+      exit 1
+    }
+
+  APP_DIR=${APP_DIR#$BASE_DIR/}     #  now only path from the base directory
+  APP_DIR=${BASE_DIR}/${APP_DIR%%/*} #  only top level directory name of the application
+
+  if [ -n "$DEBUG" ]; then
+    echo "[DEBUG] In $FUNCNAME"
+    echo "[DEBUG] APP_DIR: $APP_DIR"
+  fi
+
+  if [ -n "$APP_DIR/package.json" ]
+  then
+    APP_JSON=$APP_DIR/package.json
+    test "$DEBUG" && \
+      echo "[DEBUG] APP_JSON was set to $APP_JSON"
+
+    #  initialize application name
+    APP_NAME=$( sed -n '/^[^:]*name\W*/ {s///; s/".*//gp}' $APP_JSON )
+
+    # initialize application port
+    get_port    # sets an APP_PORT
+
+    apps[$APP_NAME]=$APP_PORT     # name <-> port
+
+    # Now find PID of the processs that opened the PORT
+     test -n "$DEBUG" && \
+         netstat -t4 -nl -p 2>/dev/null | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1
+
+     APP_PID=`netstat --tcp -4 \
+                      --numeric \
+                      --listening \
+                    --programs 2>/dev/null | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1`
+
+       if [ -n "$APP_PID" ] # process matching port found 
+       then # verify that process started in the same directory where package.json <-> APP_PORT found
+         if ps -p $APP_PID -o cmd | tail -n +2 | grep -q "$APP_DIR"
+         then   # application is running for sure
+          apps_running[$APP_NAME]=$APP_PID    # store it's pid
+          test -n "$DEBUG" && echo "[DEBUG] App $APP_NAME is running"
+         fi
+       fi
+  else
+    unset APP_JSON
   fi
 }
 
-# Expects package.json 
+# Prints current or sets new port in package.json of the application. Stored
+# in APP_JSON.
 get_port() {
-  echo "Searching for port in '$APP_JSON'"
+
   APP_PORT=`sed -n 's/^.*start.*"PORT=\([0-9]\+\).*/\1/p' $APP_JSON`
-  echo ${APP_PORT:=3000}    # DEBUG
+  if [ -z $APP_PORT ]; then APP_PORT=$PORT_DEFAULT; fi
+
+  test -n "$DEBUG" && { \
+    echo "[DEBUG] In $FUNCNAME"
+    echo "[DEBUG] APP_PORT was set to $APP_PORT"
+  }
 }
 
 # Write new or display current port number. Function can be optionaly passed 
 # a port value.
-port() {
-  if ! [ -n "$1" ]      # no port number
-  then
-    PORT=`sed -n 's/^.*start.*"PORT=\([0-9]\+\).*/\1/p' $PJ`
-    if [ -z "$PORT" ]; then
-      PORT=3000     # default port
-    fi
-    echo "Port number: $PORT"
-  else  # set the port number
-    PORT=$1
-    sed -i '/^ *"start"/ s/: ".*\(react-scripts.*\)/: "PORT='$PORT' \1/' $PJ
-    echo "Port was changed to: $PORT"
+write_port() {
+    test -n "$1" || PORT=$1
+    test -n "$PORT" || { echo "[ERROR] Port value is missing"; exit 2; }
+    sed -i '/^ *"start"/ s/: ".*\(react-scripts.*\)/: "PORT='$PORT' \1/' $APP_JSON
+    if [[ $DEBUG || $verbose ]]
+    then
+    echo "${DEBUG:+[DEBUG]} Port was changed to: $PORT"
   fi
 }
 
-# List available applications
-list_apps() {
-  cd $BASE_DIR    # start from the base directory
-  declare -A apps
-  declare -A apps_running
-  # actually search by package.json till first found...
-  declare -a app_dirs=$( find . -maxdepth 1 -type d -not -name ".*" -exec realpath {} \; )
-  # Process each application directory in turn
-  for APP_DIR in ${app_dirs[@]}; do
-    echo "<<<<<<<<>>>>>>>>>"
-    echo "APP_DIR: $APP_DIR" 
-    # find application names
-    APP_JSON=$APP_DIR/package.json
-    if [ -e "$APP_JSON" ]; then
-      echo "Getting app_name"
-      APP_NAME=$( sed -n '/^[^:]*name/ {s///; s/\W//gp}' $APP_JSON )
-      get_port    # returns in APP_PORT
-      echo "$APP_NAME: $APP_PORT"
-      apps[$APP_NAME]=$APP_PORT
-      # Find PID by port
-       netstat -t4 -nl -p | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1
-       APP_PID=`netstat -t4 -nl -p | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1`
-       #unset APP_PORT
-       echo "APP_PID: $APP_PID"
-       if [ -n "$APP_PID" ]; then
-         if ps -p $APP_PID -o cmd | tail -n +2 | grep -q "$APP_DIR" --color 
-         then
-          apps_running[$APP_NAME]=$APP_PID 
-          echo "App $APP_NAME is running"
-        fi
-       fi
-    fi
- 
-    echo "<<<<<<<<>>>>>>>>>"
-  done
+# Retrieve or set application port
+port() {
   
-  # Report apps status
-  for app in ${!apps[@]}; do
-    echo "$app -> ${apps[$app]} ${apps_running[$app]:-}"
-                                                #    :+
+  set_app
+  test "$DEBUG" && \
+    echo "[DEBUG] In $FUNCNAME"
+
+  if [ -n "$PORT" ] 
+  then
+    write_port $PORT 
+  else
+    echo $APP_PORT
+  fi
+}
+
+# Start application
+start() {
+  cd $APP_DIR
+  echo "Starting in $APP_DIR"
+  npm start 
+}
+
+# Process all applications in loop
+# suggested: process apps
+init_apps() {
+
+  test -n "$app_dirs" || app_dirs=$PWD
+  echo "$FUNCNAME"
+  echo "app_dirs = $app_dirs"
+  for APP_DIR in ${app_dirs[@]}; do # no, app_names[]
+    set_app   # for each application set:
+              #  APP_DIR, APP_JSON, APP_PORT
+    test -n "$APP_JSON" || continue
+    test -n $DEBUG && echo "[DEBUG] APP_NAME: $APP_NAME"
+    # initialize application port
+      get_port    # sets an APP_PORT
+      apps[$APP_NAME]=$APP_PORT     # name <-> port
+
+      # Now find PID of the processs that opened the PORT
+      test -n "$DEBUG" && \
+         netstat -t4 -nl -p | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1
+
+       APP_PID=`netstat --tcp -4 \
+                        --numeric \
+                        --listening \
+                      --programs 2>/dev/null | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1`
+
+       if [ -n "$APP_PID" ] # process matching port found 
+       then # verify that process started in the same directory where package.json <-> APP_PORT found
+         if ps -p $APP_PID -o cmd | tail -n +2 | grep -q "$APP_DIR"
+         then   # application is running for sure
+          apps_running[$APP_NAME]=$APP_PID    # store it's pid
+          test -n "$DEBUG" && echo "[DEBUG] App $APP_NAME is running"
+         fi
+       fi
   done
 }
 
-# Issue select to operate on apps
-list_running_apps() {
-    
-  # Currently show only running apps
-  declare -a apps=$( sudo netstat -t4 -nl -p | awk  '/node\s*$/ { print $NF }' | cut -d/ -f1 )
 
-  for app in ${apps[@]}
-  do
-    sudo ps -p $app -o cmd | tail -n +2 | sed 's,.*/\(\w\+\)/node_modules.*,\1,'
-  done
+# List applications, only running unless -v (for verbose) is specified
+list_apps() {
+
+  echo "[DEBUG] In $FUNCNAME"
+  echo "app_dirs: ${app_dirs[@]}"
+
+  test -n "$DEBUG" && \
+    { echo "[DEBUG] in $FUNCNAME";
+      echo "verbose: $verbose";
+    }
+  if [ -n "$verbose" ]
+  then
+    test -n "$DEBUG" && \
+      echo "[DEBUG] reporting all apps"
+
+    for app in ${!apps[@]}
+    do
+      echo -e "$app -> ${apps[$app]} ${apps_running[$app]:+$RUN_MSG}"
+    done
+  else 
+    for app in ${!apps_running[@]}
+    do
+      echo -e "$app ${apps[$app]}"    # name port
+        # was retrieved only under current user -> remember!
+    done
+  fi
 }
-
 
 # Create React app
 create_react_app() {
+  test -n "$1" || { echo "Application name must be specified"; exit 2; }
   npx create-react-app $1
 }
 
@@ -129,62 +217,70 @@ error_opt() {
   echo "Unrecognied option: '-$1'"
 }
 
-# Print usage() on no args
-if [ $# -eq 0 ]
-then
-  usage
-fi
 
 # Parse options
-case "$1" in
-  # show or set the port
-  -p) 
-      is_numeric() {
-        if [[ $1 =~ ^[0-9]+$ ]]   # APP_NAME
-        then
-          return 0
-        fi
-        return 1
-      }
-      while [ -n "$2" ]; do
-        if is_numeric $2; then
-          if [ -z "$PORT" ]     # why? shall I pass it somewhere?
+while [ -n "$1" ]
+do
+  case "$1" in
+    # show or set the port
+    -p) 
+        # Define quick function to check if the argument is port or 
+        # application name
+        is_numeric() {
+          if [[ $1 =~ ^[0-9]+$ ]]   # arg is numeric
           then
-            PORT=$2
-          else
-            echo "Port was already set"
-            exit
+            return 0
           fi
-        else
-          if [ -z "$APP_DIR" ]
-          then
-            APP_DIR=$2
-          else
-            echo "Applicaton was already specified"
-            exit
-          fi
-          APP_DIR=$BASE_DIR/$2
-        fi
-        shift
-      done
-
-      # move to the application directory if specified
-      cd ${APP_DIR:-.} 2>/dev/null || { echo "Can not find application directory."; exit 5; }      
-      test "$APP_DIR" =  "$BASE_DIR" && \
-        {
-          echo "Please specify APP_NAME explicitly or ";
-          echo "navigate to the one of the application directories."
-          # run select here?
-          exit 1
+          return 1
         }
-      # find application directory from the current one or the one that was specified
-      app_dir
-      port $PORT
-      ;;
-  -l) list_apps ;;
-  # Create new React app. APP_NAME required
-  -c) create_react_app $2;;
-  -h) usage;;
-  -*) error_opt "$1";;
-   *) usage;;  # combine test above
-esac
+        shift
+
+        # Test further arguments until it's not an option
+        while [[ -n "$1" && ! "$1" =~  ^- ]]; do
+          if is_numeric $1 
+          then
+            PORT=$1 
+          else
+            APP_DIR=$BASE_DIR/$1
+          fi
+          shift
+        done
+
+        action=port
+        break;;
+
+    -l) action=list_apps ;;
+
+    # This will probably fail
+    -s) test "$action" && \
+            echo "Ignoring \`-s'" || action="start";;
+    # Create new React app. APP_NAME required
+    -c) create_react_app $1;;
+    -v) ((verbose++));;
+    -h) usage;;
+    -*) error_opt "$1";;
+     # here process all arguments as application names
+     *) app_dirs+= usage;;  # combine test above
+  esac
+  shift   # next argument
+done
+
+if [ -z "$action" ] 
+then
+  echo "Performing default action"
+  action=list_apps
+  test -n "$app_dirs" || app_dirs=$PWD
+  echo "app_dirs: ${app_dirs[@]}"
+  ((verbose++))
+elif [ $action == "list_apps" ]
+then
+  #test -n "$DEBUG" && \
+    #find . -maxdepth 1 -type d -not -name ".*" -exec realpath {} \;
+  if [ -z "$app_dirs" ]
+  then
+    cd $BASE_DIR
+    app_dirs=$( find . -maxdepth 1 -type d -not -name ".*" -exec realpath {} \; )
+  fi
+fi
+init_apps   # default apps here <<<
+$action

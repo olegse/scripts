@@ -1,8 +1,13 @@
 #!/bin/bash
+#
+#   get directory names from pgrep
+#   display port via package json
+#   just if not under base_dir ignore
 
-declare -a apps=$( sudo netstat -t4 -nl -p | awk  '/node\s*$/ { print $NF }' | cut -d/ -f1 )
+list_apps() {
+  echo "v: $v"
+}
 
-for app in ${apps[@]}
-do
-  sudo ps -p $app -o cmd | tail -n +2 | sed 's,.*/\(\w\+\)/node_modules.*,\1,'
-done
+test "$1" == "-v" && ((v++))
+echo "v: $v"
+list_apps
