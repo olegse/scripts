@@ -30,8 +30,8 @@ RUN_MSG="\e[42m [RUNNING] \e[0m"
 PORT_DEFAULT=3000
 
 
-# Initializes apps[] and app_dirs[] for the particular application.
-# Uses global APP_DIR variable (init_apps)
+# Sets real directory for the application. The resulting is
+# APP_DIR and APP_JSON
 set_app() {
 
   # APP_DIR was passed as an argument
@@ -40,7 +40,6 @@ set_app() {
   # If APP_DIR was not set find it relation to the directory from
   # which the script is called.
   test -n "${APP_DIR:=$PWD}" && test -e $APP_DIR || { echo "Cannot change to '$APP_DIR'"; exit 2; }
-
 
   test "$APP_DIR" =  "$BASE_DIR" && \
     {
@@ -55,43 +54,36 @@ set_app() {
 
   if [ -n "$DEBUG" ]; then
     echo "[DEBUG] In $FUNCNAME"
-    echo "[DEBUG] APP_DIR: $APP_DIR"
+    echo "[DEBUG] Processing APP_DIR: $APP_DIR"
   fi
 
-  if [ -n "$APP_DIR/package.json" ]
+  if [ ! -e "$APP_DIR/package.json" ]
   then
-    APP_JSON=$APP_DIR/package.json
-    test "$DEBUG" && \
-      echo "[DEBUG] APP_JSON was set to $APP_JSON"
+    unset APP_JSON
+    return
+  fi
 
-    #  initialize application name
-    APP_NAME=$( sed -n '/^[^:]*name\W*/ {s///; s/".*//gp}' $APP_JSON )
+  APP_JSON=$APP_DIR/package.json
+  test "$DEBUG" && \
+    echo "[DEBUG] APP_JSON was set to $APP_JSON"
 
-    # initialize application port
-    get_port    # sets an APP_PORT
+  #  initialize application name
+  APP_NAME=$( sed -n '/^[^:]*name\W*/ {s///; s/".*//gp}' $APP_JSON )
+  test "$DEBUG" && \
+    echo "[DEBUG] APP_NAME was set to $APP_NAME"
 
-    apps[$APP_NAME]=$APP_PORT     # name <-> port
+  # initialize application port
+  get_port    # sets an APP_PORT
 
-    # Now find PID of the processs that opened the PORT
-     test -n "$DEBUG" && \
-         netstat -t4 -nl -p 2>/dev/null | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1
-
-     APP_PID=`netstat --tcp -4 \
-                      --numeric \
-                      --listening \
+  # Now find PID of the processs that opened the PORT
+  #netstat -t4 -nl -p 2>/dev/null | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1
+  APP_PID=`netstat --tcp -4 \
+                    --numeric \
+                    --listening \
                     --programs 2>/dev/null | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1`
 
-       if [ -n "$APP_PID" ] # process matching port found 
-       then # verify that process started in the same directory where package.json <-> APP_PORT found
-         if ps -p $APP_PID -o cmd | tail -n +2 | grep -q "$APP_DIR"
-         then   # application is running for sure
-          apps_running[$APP_NAME]=$APP_PID    # store it's pid
-          test -n "$DEBUG" && echo "[DEBUG] App $APP_NAME is running"
-         fi
-       fi
-  else
-    unset APP_JSON
-  fi
+  test -n "$DEBUG" && \
+    echo "[DEBUG] APP_PID was set to $APP_PID"
 }
 
 # Prints current or sets new port in package.json of the application. Stored
@@ -122,9 +114,14 @@ write_port() {
 # Retrieve or set application port
 port() {
   
-  set_app
   test "$DEBUG" && \
     echo "[DEBUG] In $FUNCNAME"
+
+  if [ -z "$APP_JSON" ]
+  then
+    echo "No React application in '$APP_DIR'"
+    exit 2
+  fi
 
   if [ -n "$PORT" ] 
   then
@@ -146,34 +143,43 @@ start() {
 init_apps() {
 
   test -n "$app_dirs" || app_dirs=$PWD
-  echo "$FUNCNAME"
-  echo "app_dirs = $app_dirs"
-  for APP_DIR in ${app_dirs[@]}; do # no, app_names[]
+
+  if [ -n "$DEBUG" ]
+  then
+    echo "[DEBUG] In $FUNCNAME"
+    for i in ${!app_dirs[@]}
+    do
+      echo "$i: ${app_dirs[$i]}"
+    done
+  fi
+
+  for APP_DIR in ${app_dirs[@]}; do 
+
+    test -n "$DEBUG" && \
+      echo "[DEBUG] $FUNCNAME: Processing APP_DIR: $APP_DIR"
+
     set_app   # for each application set:
               #  APP_DIR, APP_JSON, APP_PORT
+
+    test -n "$APP_JSON" || { echo "Not an application directory... continuing..."; }
     test -n "$APP_JSON" || continue
-    test -n $DEBUG && echo "[DEBUG] APP_NAME: $APP_NAME"
-    # initialize application port
-      get_port    # sets an APP_PORT
-      apps[$APP_NAME]=$APP_PORT     # name <-> port
 
-      # Now find PID of the processs that opened the PORT
-      test -n "$DEBUG" && \
-         netstat -t4 -nl -p | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1
+    apps[$APP_NAME]=$APP_PORT     # name <-> port
 
-       APP_PID=`netstat --tcp -4 \
-                        --numeric \
-                        --listening \
-                      --programs 2>/dev/null | awk  '/node\s*$/ { if( $4 ~ /\<'"$APP_PORT"'\>/) print $NF }' | cut -d/ -f1`
-
-       if [ -n "$APP_PID" ] # process matching port found 
-       then # verify that process started in the same directory where package.json <-> APP_PORT found
-         if ps -p $APP_PID -o cmd | tail -n +2 | grep -q "$APP_DIR"
-         then   # application is running for sure
-          apps_running[$APP_NAME]=$APP_PID    # store it's pid
-          test -n "$DEBUG" && echo "[DEBUG] App $APP_NAME is running"
-         fi
-       fi
+    if [ -n "$APP_PID" ] # process matching port found 
+    then # verify that process started in the same directory where package.json <-> APP_PORT found
+      echo "Verifying that application is running in the same directory: "
+     ps -p $APP_PID -o cmd | tail -n +2 
+     echo "Against |$APP_DIR|"
+     ps -p $APP_PID -o cmd | tail -n +2 | grep -o --color "$APP_DIR"
+     echo $?
+      if ps -p $APP_PID -o cmd | tail -n +2 | grep -q "$APP_DIR"
+      then   
+       # application is running for sure
+       echo "Running"
+       apps_running[$APP_NAME]=$APP_PID    # store it's pid
+      fi
+    fi
   done
 }
 
@@ -269,6 +275,7 @@ if [ -z "$action" ]
 then
   echo "Performing default action"
   action=list_apps
+  # That can be moved under init_apps
   test -n "$app_dirs" || app_dirs=$PWD
   echo "app_dirs: ${app_dirs[@]}"
   ((verbose++))
@@ -279,7 +286,7 @@ then
   if [ -z "$app_dirs" ]
   then
     cd $BASE_DIR
-    app_dirs=$( find . -maxdepth 1 -type d -not -name ".*" -exec realpath {} \; )
+    app_dirs=( $( find . -maxdepth 1 -type d -not -name ".*" -exec realpath {} \; ) )
   fi
 fi
 init_apps   # default apps here <<<
