@@ -4,9 +4,9 @@
 # List applicaitons in SELECT
 # 
 usage() {
-  echo "Usage: `basename $0` [-v] [-l]|[-c APP]|[-p [PORT] [APP]] "
-  echo "Automates repetative React tasks. Supported tasks"
-  echo "are: "
+  echo "Usage: `basename $0` [-v] [-c APP]|[-p [PORT] [APP]]|[-l] [APP]..."
+  echo "Automates repetative React tasks. Supported tasks: "
+  echo ""
   echo "   list applications"
   echo "   create new application"
   echo "   change/display port"
@@ -20,9 +20,9 @@ usage() {
   exit 0
 }
 
-declare -A apps             # apps[NAME]=PORT
-declare -A apps_running     # apps_running[NAME]=PID
-declare -a app_names        # 
+declare -A apps             # apps[NAME]=APP_DIR
+declare -A ports            # ports[NAME]=PORT
+declare -A apps_running     # apps_running[PORT]=PID
 declare -a app_dirs         # full path to the directories
 declare -g APP_DIR
 BASE_DIR=/var/node/ArtApps
@@ -37,17 +37,25 @@ set_app() {
   # APP_DIR was passed as an argument
   test -z "$1" || APP_DIR=$1
 
-  # If APP_DIR was not set find it relation to the directory from
+  # If APP_DIR was not set, find it relation to the directory from
   # which the script is called.
-  test -n "${APP_DIR:=$PWD}" && test -e $APP_DIR || { echo "Cannot change to '$APP_DIR'"; exit 2; }
-
-  test "$APP_DIR" =  "$BASE_DIR" && \
+  test -e "${APP_DIR:=$PWD}" || \
     {
-      echo "Please specify APP_NAME explicitly or ";
-      echo "navigate to the one of the application directories."
-      # run select here?
-      exit 1
+      #echo "Relative directory: $APP_DIR";
+      # Parse by application name
+      # find . -maxdepth 2 -name "package.json" -exec grep --files-with-matches -e "nice_app" {} \;
+      APP_DIR=$BASE_DIR/$APP_DIR;
     }
+  test -e "$APP_DIR" || \
+    { 
+      #echo "Cannot change to '$APP_DIR', searching for application directory";
+      APP_DIR=` find $BASE_DIR -maxdepth 2 -name "package.json" -exec grep --files-with-matches -e "nice_app" {} \; `
+    }
+
+  test -e "$APP_DIR" || { echo "No matching applications found"; exit 2; }
+
+  # it's also another option when you pass just a name of the application
+  # not full path
 
   APP_DIR=${APP_DIR#$BASE_DIR/}     #  now only path from the base directory
   APP_DIR=${BASE_DIR}/${APP_DIR%%/*} #  only top level directory name of the application
@@ -86,6 +94,56 @@ set_app() {
     echo "[DEBUG] APP_PID was set to $APP_PID"
 }
 
+# Set apps[], ports[] and apps_running[]
+init_apps() {
+
+  # Operate on current directory by default
+  test "$APP_DIR" = "$BASE_DIR" && \
+    {
+      echo "Please specify APP_NAME explicitly or ";
+      echo "navigate to the one of the application directories."
+      # run select here?
+      exit 1
+    }
+
+  if [ -n "$DEBUG" ]
+  then
+    echo "[DEBUG] In $FUNCNAME"
+    for i in ${!app_dirs[@]}
+    do
+      echo "$i: ${app_dirs[$i]}"
+    done
+  fi
+
+  for APP_DIR in ${app_dirs[@]}; do 
+
+    test -n "$DEBUG" && \
+      echo "[DEBUG] $FUNCNAME: Processing APP_DIR: $APP_DIR"
+
+    set_app   # for each application set:
+              #  APP_DIR, APP_JSON, APP_PORT
+
+    if [ -n "$DEBUG" ]
+    then
+      test -n "$APP_JSON" || { echo "Not an application directory... continuing..."; }
+    fi
+    test -n "$APP_JSON" || continue
+
+    apps[$APP_NAME]=$APP_DIR
+    ports[$APP_NAME]=$APP_PORT  # name <-> port
+
+    if [ -n "$APP_PID" ] # process matching port found 
+    then # verify that process started in the same directory where package.json <-> APP_PORT found
+      if ps -p $APP_PID -o cmd | tail -n +2 | grep -q "$APP_DIR"
+      then   
+       # application is running for sure
+       apps_running[$APP_NAME]=$APP_PID    # store it's pid
+      fi
+    fi
+  done
+}
+
+
 # Prints current or sets new port in package.json of the application. Stored
 # in APP_JSON.
 get_port() {
@@ -105,10 +163,7 @@ write_port() {
     test -n "$1" || PORT=$1
     test -n "$PORT" || { echo "[ERROR] Port value is missing"; exit 2; }
     sed -i '/^ *"start"/ s/: ".*\(react-scripts.*\)/: "PORT='$PORT' \1/' $APP_JSON
-    if [[ $DEBUG || $verbose ]]
-    then
-    echo "${DEBUG:+[DEBUG]} Port was changed to: $PORT"
-  fi
+    test $? = 0 && echo "Port was changed to: $PORT"
 }
 
 # Retrieve or set application port
@@ -140,60 +195,16 @@ start() {
 
 # Process all applications in loop
 # suggested: process apps
-init_apps() {
-
-  test -n "$app_dirs" || app_dirs=$PWD
-
-  if [ -n "$DEBUG" ]
-  then
-    echo "[DEBUG] In $FUNCNAME"
-    for i in ${!app_dirs[@]}
-    do
-      echo "$i: ${app_dirs[$i]}"
-    done
-  fi
-
-  for APP_DIR in ${app_dirs[@]}; do 
-
-    test -n "$DEBUG" && \
-      echo "[DEBUG] $FUNCNAME: Processing APP_DIR: $APP_DIR"
-
-    set_app   # for each application set:
-              #  APP_DIR, APP_JSON, APP_PORT
-
-    test -n "$APP_JSON" || { echo "Not an application directory... continuing..."; }
-    test -n "$APP_JSON" || continue
-
-    apps[$APP_NAME]=$APP_PORT     # name <-> port
-
-    if [ -n "$APP_PID" ] # process matching port found 
-    then # verify that process started in the same directory where package.json <-> APP_PORT found
-      echo "Verifying that application is running in the same directory: "
-     ps -p $APP_PID -o cmd | tail -n +2 
-     echo "Against |$APP_DIR|"
-     ps -p $APP_PID -o cmd | tail -n +2 | grep -o --color "$APP_DIR"
-     echo $?
-      if ps -p $APP_PID -o cmd | tail -n +2 | grep -q "$APP_DIR"
-      then   
-       # application is running for sure
-       echo "Running"
-       apps_running[$APP_NAME]=$APP_PID    # store it's pid
-      fi
-    fi
-  done
-}
-
 
 # List applications, only running unless -v (for verbose) is specified
 list_apps() {
 
-  echo "[DEBUG] In $FUNCNAME"
-  echo "app_dirs: ${app_dirs[@]}"
 
   test -n "$DEBUG" && \
     { echo "[DEBUG] in $FUNCNAME";
-      echo "verbose: $verbose";
+      echo "[DEBUG] verbose: $verbose";
     }
+
   if [ -n "$verbose" ]
   then
     test -n "$DEBUG" && \
@@ -201,12 +212,13 @@ list_apps() {
 
     for app in ${!apps[@]}
     do
-      echo -e "$app -> ${apps[$app]} ${apps_running[$app]:+$RUN_MSG}"
+      echo -e "$app [${apps[$app]}] -> ${ports[$app]} ${apps_running[$app]:+$RUN_MSG}"
+              # APP_NAME    APP_DIR          APP_PORT       name <-> pid
     done
   else 
     for app in ${!apps_running[@]}
     do
-      echo -e "$app ${apps[$app]}"    # name port
+      echo -e "$app ${ports[$app]}"    # name port
         # was retrieved only under current user -> remember!
     done
   fi
@@ -215,14 +227,16 @@ list_apps() {
 # Create React app
 create_react_app() {
   test -n "$1" || { echo "Application name must be specified"; exit 2; }
+  cd $BASE_DIR
+  echo "Creating `realpath $1`"
   npx create-react-app $1
+  exit  # exit after creation
 }
 
 # Unrecognized option
 error_opt() {
   echo "Unrecognied option: '-$1'"
 }
-
 
 # Parse options
 while [ -n "$1" ]
@@ -247,7 +261,7 @@ do
           then
             PORT=$1 
           else
-            APP_DIR=$BASE_DIR/$1
+            app_dirs=$BASE_DIR/$1   # BASE_DIR should be moved under set_app
           fi
           shift
         done
@@ -261,24 +275,24 @@ do
     -s) test "$action" && \
             echo "Ignoring \`-s'" || action="start";;
     # Create new React app. APP_NAME required
-    -c) create_react_app $1;;
+    -c) create_react_app $2;;
+        # create and exit
     -v) ((verbose++));;
     -h) usage;;
     -*) error_opt "$1";;
      # here process all arguments as application names
-     *) app_dirs+= usage;;  # combine test above
+     *) app_dirs+=( $1 );;  # combine test above 
   esac
   shift   # next argument
 done
 
 if [ -z "$action" ] 
 then
-  echo "Performing default action"
+  test -n "$DEBUG" && \
+    echo "Performing default action"
+
   action=list_apps
-  # That can be moved under init_apps
-  test -n "$app_dirs" || app_dirs=$PWD
-  echo "app_dirs: ${app_dirs[@]}"
-  ((verbose++))
+  ((verbose++))   # always verbose
 elif [ $action == "list_apps" ]
 then
   #test -n "$DEBUG" && \
@@ -287,7 +301,11 @@ then
   then
     cd $BASE_DIR
     app_dirs=( $( find . -maxdepth 1 -type d -not -name ".*" -exec realpath {} \; ) )
+  else
+    ((verbose++))   # application directories or names were specified explicitely <- always verbose
   fi
 fi
-init_apps   # default apps here <<<
+# Process current directory by default
+test -n "$app_dirs" || app_dirs=$PWD
+init_apps   # no app_dirs[] use the $PWD
 $action
