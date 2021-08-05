@@ -24,16 +24,13 @@ function usage() {
   exit 0
 }
 
-# Prints image path. Expects 
-# image id. path should be set globally.
-function print_image_path() { find $path -name ${1}; }
-	
 
 # Construct the path
 dir=$( docker info | awk -F: '/Docker Root Dir/ {print $2}' )
 driver=$( docker info | awk -F: '/Storage Driver/ {print $2}' | tr -d ' ' )
-path=$dir/image/$driver/imagedb/content/
+path=$dir/image/$driver/imagedb/content
 
+test -n "$1" || usage
 while getopts ":pcdh" opt; do
   case $opt in
     c)	(( list_containers++ )) ;;
@@ -47,30 +44,27 @@ while getopts ":pcdh" opt; do
 done
  
 # Test for permissions
-test -r $dir || { echo "Cannot access '$dir'. Permission denied."; exit 2; }
+#test -r $dir || { echo "Cannot access '$dir'. Permission denied."; exit 2; }
 
 # Display names along to files ${container:-a}
 if [ -n "$list_containers" ]; then
+  # Iterate over container names
 	for cnt in $( docker ps -a --format "{{ .Names }}" )
 	do
-		image_id=$( docker inspect $cnt --format "{{ .Image }}" )
-		image_id=${image_id/*:}
+    # Find an image id container was created with
+		image_id=$( docker inspect $cnt --format "{{ .Image }}" | cut -d: -f2 )
+    # find respective image tags
 		repotag=$( docker inspect $image_id -f "{{ .RepoTags }}" )
 		echo "$cnt:  $image_id ($repotag)"
-		test "$print_image_path" && print_image_path $image_id
-
+    test "$print_image_path" && get_image_path $image_id
 	done
 
 elif [ -n "$print_image_path" ]; then
-	for image_id in $(docker images --no-trunc --quiet)
+	for image_id in $( docker images --no-trunc --quiet | cut -d: -f2 )
 	do
-	 # echo "[DEBUG] Processing '$image_id'"
-	 # learn tag
+   image_path=$path/$image_id
 	 repotag=$( docker inspect $image_id -f "{{ .RepoTags }}" )
-	 find $path -name ${image_id/*:} -exec echo -e "{}\n($repotag)" \; # remove 'sha:' part
+   echo "[$repotag] $image_path"
+
 	done
 fi
-
-# add interactive
-#echo "Image path: '$path'"
-#sudo ls -l $path
